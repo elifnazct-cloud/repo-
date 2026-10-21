@@ -33,6 +33,15 @@ if ENV['RENDER'] == 'true' && ENV.fetch('TEST_ACCESS_PASSWORD', '').length < 20
 end
 SESSION_TTL = 14 * 24 * 60 * 60
 
+# sqlite3 2.x accepts bind values as a single array argument.
+def db_execute(sql, *binds)
+  DB.execute(sql, binds)
+end
+
+def db_first_row(sql, *binds)
+  DB.get_first_row(sql, binds)
+end
+
 DB = SQLite3::Database.new(DB_PATH)
 DB.results_as_hash = true
 db_execute('PRAGMA foreign_keys = ON')
@@ -122,15 +131,6 @@ def request_data(request)
   data = JSON.parse(request.body.to_s.empty? ? '{}' : request.body)
   raise ArgumentError, 'Geçersiz istek.' unless data.is_a?(Hash)
   data
-end
-
-# sqlite3 2.x accepts bind values as a single array argument.
-def db_execute(sql, *binds)
-  DB.execute(sql, binds)
-end
-
-def db_first_row(sql, *binds)
-  DB.get_first_row(sql, binds)
 end
 
 def password_hash(password, salt = SecureRandom.random_bytes(16))
