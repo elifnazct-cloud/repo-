@@ -35,7 +35,7 @@ SESSION_TTL = 14 * 24 * 60 * 60
 
 DB = SQLite3::Database.new(DB_PATH)
 DB.results_as_hash = true
-DB.execute('PRAGMA foreign_keys = ON')
+db_execute('PRAGMA foreign_keys = ON')
 DB.execute_batch(<<~SQL)
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
@@ -89,18 +89,18 @@ DB.execute_batch(<<~SQL)
   );
 SQL
 
-columns = DB.execute('PRAGMA table_info(users)').map { |row| row['name'] }
-DB.execute('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0') unless columns.include?('email_verified')
+columns = db_execute('PRAGMA table_info(users)').map { |row| row['name'] }
+db_execute('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0') unless columns.include?('email_verified')
 admin_email = ENV.fetch('BEAVIZOR_ADMIN_EMAIL', '').strip.downcase
 admin_password = ENV.fetch('BEAVIZOR_ADMIN_PASSWORD', '')
 if !admin_email.empty? && admin_password.length >= 10
-  existing = DB.get_first_row('SELECT id FROM users WHERE email = ?', admin_email)
+  existing = db_first_row('SELECT id FROM users WHERE email = ?', admin_email)
   if existing
-    DB.execute("UPDATE users SET role = 'admin', email_verified = 1 WHERE id = ?", existing['id'])
+    db_execute("UPDATE users SET role = 'admin', email_verified = 1 WHERE id = ?", existing['id'])
   else
     salt = SecureRandom.random_bytes(16)
     digest = OpenSSL::PKCS5.pbkdf2_hmac(admin_password, salt, 310_000, 32, 'sha256')
-    DB.execute("INSERT INTO users(name,email,password_hash,email_verified,role) VALUES(?,?,?,1,'admin')",
+    db_execute("INSERT INTO users(name,email,password_hash,email_verified,role) VALUES(?,?,?,1,'admin')",
                'Beavizor Admin', admin_email, "#{salt.unpack1('H*')}:#{digest.unpack1('H*')}")
   end
 elsif !admin_email.empty?
@@ -122,6 +122,15 @@ def request_data(request)
   data = JSON.parse(request.body.to_s.empty? ? '{}' : request.body)
   raise ArgumentError, 'Geçersiz istek.' unless data.is_a?(Hash)
   data
+end
+
+# sqlite3 2.x accepts bind values as a single array argument.
+def db_execute(sql, *binds)
+  DB.execute(sql, binds)
+end
+
+def db_first_row(sql, *binds)
+  DB.get_first_row(sql, binds)
 end
 
 def password_hash(password, salt = SecureRandom.random_bytes(16))
@@ -159,8 +168,8 @@ end
 
 def issue_token(user_id, purpose)
   token = SecureRandom.urlsafe_base64(32)
-  DB.execute('DELETE FROM email_tokens WHERE user_id = ? AND purpose = ?', user_id, purpose)
-  DB.execute('INSERT INTO email_tokens(token_hash,user_id,purpose,expires_at) VALUES(?,?,?,?)',
+  db_execute('DELETE FROM email_tokens WHERE user_id = ? AND purpose = ?', user_id, purpose)
+  db_execute('INSERT INTO email_tokens(token_hash,user_id,purpose,expires_at) VALUES(?,?,?,?)',
              Digest::SHA256.hexdigest(token), user_id, purpose, Time.now.to_i + 3600)
   token
 end
@@ -209,7 +218,7 @@ server.mount_proc('/') do |request, response|
   begin
     if request.request_method == 'GET' && path == '/api/me'
       token = request.cookies.find { |cookie| cookie.name == 'beavizor_session' }&.value
-      user = token && DB.get_first_row('SELECT users.id,users.name,users.email,users.role FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?', Digest::SHA256.hexdigest(token), Time.now.to_i)
+      user = token && db_first_row('SELECT users.id,users.name,users.email,users.role FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?', Digest::SHA256.hexdigest(token), Time.now.to_i)
       json_response(response, 200, user ? { user: user } : { user: nil })
     elsif request.request_method == 'GET' && path.start_with?('/api/')
       user = current_user(request)
@@ -219,13 +228,13 @@ server.mount_proc('/') do |request, response|
           next
         end
         if path == '/api/bookings'
-          rows = DB.execute('SELECT * FROM bookings WHERE user_id=? ORDER BY id DESC', user['id'])
+          rows = db_execute('SELECT * FROM bookings WHERE user_id=? ORDER BY id DESC', user['id'])
           json_response(response, 200, { bookings: rows })
         elsif path == '/api/messages'
-          rows = DB.execute('SELECT id,expert_name,body,created_at FROM messages WHERE user_id=? ORDER BY id ASC', user['id'])
+          rows = db_execute('SELECT id,expert_name,body,created_at FROM messages WHERE user_id=? ORDER BY id ASC', user['id'])
           json_response(response, 200, { messages: rows })
         else
-          rows = DB.execute('SELECT * FROM listings WHERE user_id=? ORDER BY id DESC', user['id'])
+          rows = db_execute('SELECT * FROM listings WHERE user_id=? ORDER BY id DESC', user['id'])
           json_response(response, 200, { listings: rows })
         end
       elsif path == '/api/admin/overview'
@@ -233,12 +242,12 @@ server.mount_proc('/') do |request, response|
           json_response(response, user ? 403 : 401, { error: user ? 'Yönetici erişimi gerekli.' : 'Oturum açmanız gerekiyor.' })
           next
         end
-        users = DB.execute('SELECT id,name,email,role,created_at FROM users ORDER BY id DESC')
-        bookings = DB.execute('SELECT bookings.*,users.name AS customer_name,users.email AS customer_email FROM bookings JOIN users ON users.id=bookings.user_id ORDER BY bookings.id DESC')
-        listings = DB.execute('SELECT listings.*,users.name AS seller_name,users.email AS seller_email FROM listings JOIN users ON users.id=listings.user_id ORDER BY listings.id DESC')
+        users = db_execute('SELECT id,name,email,role,created_at FROM users ORDER BY id DESC')
+        bookings = db_execute('SELECT bookings.*,users.name AS customer_name,users.email AS customer_email FROM bookings JOIN users ON users.id=bookings.user_id ORDER BY bookings.id DESC')
+        listings = db_execute('SELECT listings.*,users.name AS seller_name,users.email AS seller_email FROM listings JOIN users ON users.id=listings.user_id ORDER BY listings.id DESC')
         json_response(response, 200, { users: users, bookings: bookings, listings: listings })
       elsif path == '/api/listings'
-        rows = DB.execute("SELECT listings.*,users.name AS seller_name FROM listings JOIN users ON users.id=listings.user_id WHERE listings.status='published' AND users.email_verified=1 ORDER BY listings.id DESC")
+        rows = db_execute("SELECT listings.*,users.name AS seller_name FROM listings JOIN users ON users.id=listings.user_id WHERE listings.status='published' AND users.email_verified=1 ORDER BY listings.id DESC")
         json_response(response, 200, { listings: rows })
       else
         json_response(response, 404, { error: 'Bulunamadı.' })
@@ -254,7 +263,7 @@ server.mount_proc('/') do |request, response|
           raise ArgumentError, 'Ad en az 2 karakter olmalı.' if name.length < 2 || name.length > 80
           raise ArgumentError, 'Kayıt şifresi en az 10 karakter olmalı.' if password.length < 10
           begin
-            DB.execute('INSERT INTO users(name,email,password_hash,email_verified) VALUES(?,?,?,0)', name,email,password_hash(password))
+            db_execute('INSERT INTO users(name,email,password_hash,email_verified) VALUES(?,?,?,0)', name,email,password_hash(password))
           rescue SQLite3::ConstraintException
             json_response(response,409,{error:'Bu e-posta adresi zaten kayıtlı.'})
             next
@@ -265,7 +274,7 @@ server.mount_proc('/') do |request, response|
           begin
             email_link(email,'Beavizor e-posta doğrulama','Hesabını doğrulamak için bağlantıyı aç:',link)
           rescue StandardError => error
-            DB.execute('DELETE FROM users WHERE id=?',user_id)
+            db_execute('DELETE FROM users WHERE id=?',user_id)
             warn "E-posta gönderilemedi: #{error.message}"
             json_response(response,503,{error:'Doğrulama e-postası gönderilemedi. SMTP ayarlarını kontrol edin.'})
             next
@@ -273,7 +282,7 @@ server.mount_proc('/') do |request, response|
           message = EMAIL_MODE == 'console' ? 'Geliştirme modunda: doğrulama bağlantısı sunucu terminaline yazıldı.' : 'Doğrulama bağlantısı e-posta adresine gönderildi.'
           json_response(response,201,{pending_verification:true,message:message})
         else
-          user = DB.get_first_row('SELECT id,name,email,role,email_verified,password_hash FROM users WHERE email=?',email)
+          user = db_first_row('SELECT id,name,email,role,email_verified,password_hash FROM users WHERE email=?',email)
           unless user && password_valid?(password,user['password_hash'])
             json_response(response,401,{error:'E-posta veya şifre hatalı.'})
             next
@@ -283,7 +292,7 @@ server.mount_proc('/') do |request, response|
             next
           end
           token = SecureRandom.urlsafe_base64(32)
-          DB.execute('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)',Digest::SHA256.hexdigest(token),user['id'],Time.now.to_i+SESSION_TTL)
+          db_execute('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)',Digest::SHA256.hexdigest(token),user['id'],Time.now.to_i+SESSION_TTL)
           secure_attribute = PUBLIC_URL.start_with?('https://') ? '; Secure' : ''
           response['Set-Cookie'] = "beavizor_session=#{token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=#{SESSION_TTL}#{secure_attribute}"
           user.delete('password_hash')
@@ -291,17 +300,17 @@ server.mount_proc('/') do |request, response|
         end
       elsif path == '/api/verify-email'
         token = data.fetch('token','').to_s
-        row = DB.get_first_row("SELECT user_id FROM email_tokens WHERE token_hash=? AND purpose='verify' AND expires_at>?",Digest::SHA256.hexdigest(token),Time.now.to_i)
+        row = db_first_row("SELECT user_id FROM email_tokens WHERE token_hash=? AND purpose='verify' AND expires_at>?",Digest::SHA256.hexdigest(token),Time.now.to_i)
         unless row
           json_response(response,400,{error:'Doğrulama bağlantısı geçersiz veya süresi dolmuş.'})
           next
         end
-        DB.execute('UPDATE users SET email_verified=1 WHERE id=?',row['user_id'])
-        DB.execute('DELETE FROM email_tokens WHERE token_hash=?',Digest::SHA256.hexdigest(token))
+        db_execute('UPDATE users SET email_verified=1 WHERE id=?',row['user_id'])
+        db_execute('DELETE FROM email_tokens WHERE token_hash=?',Digest::SHA256.hexdigest(token))
         json_response(response,200,{ok:true,message:'E-posta adresin doğrulandı. Şimdi giriş yapabilirsin.'})
       elsif path == '/api/forgot-password'
         email = data.fetch('email','').to_s.strip.downcase
-        user = DB.get_first_row('SELECT id,name FROM users WHERE email=? AND email_verified=1',email)
+        user = db_first_row('SELECT id,name FROM users WHERE email=? AND email_verified=1',email)
         if user
           token = issue_token(user['id'],'reset')
           link = "#{PUBLIC_URL}/?reset=#{URI.encode_www_form_component(token)}"
@@ -313,18 +322,18 @@ server.mount_proc('/') do |request, response|
         password = data.fetch('password','').to_s
         raise ArgumentError,'Şifre en az 10 karakter olmalı.' if password.length < 10 || password.length > 200
         digest = Digest::SHA256.hexdigest(token)
-        row = DB.get_first_row("SELECT user_id FROM email_tokens WHERE token_hash=? AND purpose='reset' AND expires_at>?",digest,Time.now.to_i)
+        row = db_first_row("SELECT user_id FROM email_tokens WHERE token_hash=? AND purpose='reset' AND expires_at>?",digest,Time.now.to_i)
         unless row
           json_response(response,400,{error:'Şifre yenileme bağlantısı geçersiz veya süresi dolmuş.'})
           next
         end
-        DB.execute('UPDATE users SET password_hash=? WHERE id=?',password_hash(password),row['user_id'])
-        DB.execute("DELETE FROM email_tokens WHERE user_id=? AND purpose='reset'",row['user_id'])
-        DB.execute('DELETE FROM sessions WHERE user_id=?',row['user_id'])
+        db_execute('UPDATE users SET password_hash=? WHERE id=?',password_hash(password),row['user_id'])
+        db_execute("DELETE FROM email_tokens WHERE user_id=? AND purpose='reset'",row['user_id'])
+        db_execute('DELETE FROM sessions WHERE user_id=?',row['user_id'])
         json_response(response,200,{ok:true,message:'Şifren güncellendi. Yeni şifrenle giriş yapabilirsin.'})
       elsif path == '/api/logout'
         token = request.cookies.find { |cookie| cookie.name == 'beavizor_session' }&.value
-        DB.execute('DELETE FROM sessions WHERE token_hash=?',Digest::SHA256.hexdigest(token)) if token
+        db_execute('DELETE FROM sessions WHERE token_hash=?',Digest::SHA256.hexdigest(token)) if token
         response['Set-Cookie'] = 'beavizor_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'
         json_response(response,200,{ok:true})
       elsif path == '/api/bookings'
@@ -341,8 +350,8 @@ server.mount_proc('/') do |request, response|
         parsed=Time.strptime(date,'%Y-%m-%d') rescue nil
         raise ArgumentError,'Randevu tarihi geçersiz.' unless parsed && parsed.strftime('%Y-%m-%d') == date && parsed.to_date > Date.today
         raise ArgumentError,'Hizmet, adres ve geçerli saat gerekli.' if service.empty? || price.empty? || address.length < 5 || !%w[10:00 13:30 16:00 18:30].include?(time)
-        DB.execute('INSERT INTO bookings(user_id,service,price,location,booking_date,booking_time) VALUES(?,?,?,?,?,?)',user['id'],service,price,address,date,time)
-        booking=DB.get_first_row('SELECT * FROM bookings WHERE id=?',DB.last_insert_row_id)
+        db_execute('INSERT INTO bookings(user_id,service,price,location,booking_date,booking_time) VALUES(?,?,?,?,?,?)',user['id'],service,price,address,date,time)
+        booking=db_first_row('SELECT * FROM bookings WHERE id=?',DB.last_insert_row_id)
         json_response(response,201,{booking:booking})
       elsif path == '/api/listings'
         user = current_user(request)
@@ -362,9 +371,9 @@ server.mount_proc('/') do |request, response|
         raise ArgumentError, 'Şehir 2-60 karakter olmalı.' unless city.length.between?(2, 60)
         raise ArgumentError, 'Fiyat 100-100000 TL arasında olmalı.' unless price.match?(/\A\d{1,6}\z/) && price.to_i.between?(100, 100_000)
         raise ArgumentError, 'Fotoğraf bağlantısı HTTPS olmalı.' unless photo_url.empty? || photo_url.match?(%r{\Ahttps://[^\s]{1,500}\z})
-        DB.execute("INSERT INTO listings(user_id,title,category,description,price_cents,city,photo_url,status) VALUES(?,?,?,?,?,?,?,'pending')",
+        db_execute("INSERT INTO listings(user_id,title,category,description,price_cents,city,photo_url,status) VALUES(?,?,?,?,?,?,?,'pending')",
                    user['id'], title, category, description, price.to_i * 100, city, photo_url)
-        listing = DB.get_first_row('SELECT * FROM listings WHERE id=?', DB.last_insert_row_id)
+        listing = db_first_row('SELECT * FROM listings WHERE id=?', DB.last_insert_row_id)
         json_response(response, 201, { listing: listing, message: 'İlanın yönetici onayına gönderildi.' })
       elsif path == '/api/messages'
         user=current_user(request)
@@ -375,8 +384,8 @@ server.mount_proc('/') do |request, response|
         expert=data.fetch('expert_name','').to_s.strip[0,100]
         body=data.fetch('body','').to_s.strip
         raise ArgumentError,'Uzman ve 1-2000 karakter arası mesaj gerekli.' if expert.empty? || body.empty? || body.length>2000
-        DB.execute('INSERT INTO messages(user_id,expert_name,body) VALUES(?,?,?)',user['id'],expert,body)
-        row=DB.get_first_row('SELECT id,expert_name,body,created_at FROM messages WHERE id=?',DB.last_insert_row_id)
+        db_execute('INSERT INTO messages(user_id,expert_name,body) VALUES(?,?,?)',user['id'],expert,body)
+        row=db_first_row('SELECT id,expert_name,body,created_at FROM messages WHERE id=?',DB.last_insert_row_id)
         json_response(response,201,{message:row})
       elsif path =~ %r{\A/api/admin/listings/(\d+)/status\z}
         user = current_user(request)
@@ -387,7 +396,7 @@ server.mount_proc('/') do |request, response|
         listing_id = path[%r{/api/admin/listings/(\d+)/status}, 1].to_i
         status = data.fetch('status', '').to_s
         raise ArgumentError, 'İlan durumu geçersiz.' unless %w[published rejected].include?(status)
-        DB.execute('UPDATE listings SET status=? WHERE id=?', status, listing_id)
+        db_execute('UPDATE listings SET status=? WHERE id=?', status, listing_id)
         json_response(response, 200, { ok: true })
       elsif path =~ %r{\A/api/admin/bookings/(\d+)/status\z}
         user = current_user(request)
@@ -398,7 +407,7 @@ server.mount_proc('/') do |request, response|
         booking_id = path[%r{/api/admin/bookings/(\d+)/status}, 1].to_i
         status = data.fetch('status', '').to_s
         raise ArgumentError, 'Durum geçersiz.' unless %w[pending confirmed completed cancelled].include?(status)
-        DB.execute('UPDATE bookings SET status=? WHERE id=?', status, booking_id)
+        db_execute('UPDATE bookings SET status=? WHERE id=?', status, booking_id)
         json_response(response, 200, { ok: true })
       else
         json_response(response,404,{error:'Bulunamadı.'})
@@ -418,7 +427,7 @@ end
 def current_user(request)
   token = request.cookies.find { |cookie| cookie.name == 'beavizor_session' }&.value
   return nil unless token
-  row=DB.get_first_row('SELECT users.id,users.name,users.email,users.role FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?',Digest::SHA256.hexdigest(token),Time.now.to_i)
+  row=db_first_row('SELECT users.id,users.name,users.email,users.role FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?',Digest::SHA256.hexdigest(token),Time.now.to_i)
   row
 end
 
