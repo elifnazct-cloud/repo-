@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff5e8"/><stop offset="1" stop-color="#b77966"/></linearGradient></defs>
+<rect width="240" height="180" rx="22" fill="url(#bg)"/>
+<circle cx="120" cy="89" r="54" fill="#efc1a7"/>
+<path d="M61 80c0-44 24-68 59-68s59 24 59 68c-11-22-24-36-59-36S72 58 61 80Z" fill="#704338"/>
+<path d="M71 43Q120 2 169 43" fill="none" stroke="#fff" stroke-width="8" opacity=".82"/>
+<path d="M88 90q11-9 22 0M130 90q11-9 22 0" fill="none" stroke="#9a6758" stroke-width="4"/>
+<circle cx="99" cy="91" r="3" fill="#5c3a35"/><circle cx="141" cy="91" r="3" fill="#5c3a35"/>
+<path d="M109 112q11 8 22 0" fill="none" stroke="#b25f67" stroke-width="4" stroke-linecap="round"/>
+<circle cx="85" cy="109" r="9" fill="#e89b91" opacity=".4"/><circle cx="155" cy="109" r="9" fill="#e89b91" opacity=".4"/>
+<text x="16" y="160" fill="#fff" font-family="sans-serif" font-size="15" font-weight="700">Gelin Free Style</text>
+</svg>

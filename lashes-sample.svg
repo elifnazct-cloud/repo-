@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b9d8fb"/><stop offset="1" stop-color="#e9b7d0"/></linearGradient></defs>
+<rect width="240" height="180" rx="22" fill="url(#bg)"/>
+<ellipse cx="120" cy="95" rx="72" ry="42" fill="#edc0a9"/>
+<path d="M64 92q20-42 56-42t56 42q-30-19-56-19T64 92Z" fill="#5b4158"/>
+<path d="M70 83q-7-11-15-16M78 76q-5-13-10-20M170 83q7-11 15-16M162 76q5-13 10-20" fill="none" stroke="#3f3048" stroke-width="5" stroke-linecap="round"/>
+<path d="M88 107q32 17 64 0" fill="none" stroke="#a86b78" stroke-width="4" stroke-linecap="round"/>
+<text x="16" y="160" fill="#fff" font-family="sans-serif" font-size="15" font-weight="700">İpek Kirpik</text>
+</svg>

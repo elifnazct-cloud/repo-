@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eeb8d1"/><stop offset="1" stop-color="#9fc7f4"/></linearGradient></defs>
+<rect width="240" height="180" rx="22" fill="url(#bg)"/>
+<path d="M44 130q6-70 43-71 16 1 20 15 4-18 20-18 16 0 19 18 8-16 22-11 28 13 29 67Z" fill="#f6d3bd"/>
+<path d="M76 70q8-19 20-6v28H76ZM109 58q13-14 20 2v32h-20ZM143 66q12-15 21 1v28h-21ZM177 74q12-11 18 4v22h-18Z" fill="#f5b4cd" stroke="#fff" stroke-width="3"/>
+<circle cx="91" cy="72" r="3" fill="#9bbcf0"/><circle cx="123" cy="66" r="3" fill="#9bbcf0"/><circle cx="155" cy="72" r="3" fill="#9bbcf0"/>
+<text x="16" y="160" fill="#fff" font-family="sans-serif" font-size="15" font-weight="700">Protez Tırnak</text>
+</svg>
