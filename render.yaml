@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: beavizor
+    runtime: docker
+    plan: free
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: EMAIL_MODE
+        value: console
+# Test deployment only. No persistent database on free plan.
+# Do not use real user data or enable public registration in production.
