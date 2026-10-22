@@ -65,7 +65,7 @@ if USE_POSTGRES
         password_hash TEXT NOT NULL,
         email_verified INTEGER NOT NULL DEFAULT 0,
         role TEXT NOT NULL DEFAULT 'customer' CHECK(role IN ('customer', 'admin')),
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
       CREATE TABLE IF NOT EXISTS sessions (
         token_hash TEXT PRIMARY KEY,
@@ -87,7 +87,7 @@ if USE_POSTGRES
         booking_date TEXT NOT NULL,
         booking_time TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'completed', 'cancelled')),
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
       CREATE TABLE IF NOT EXISTS posts (
         id BIGSERIAL PRIMARY KEY,
@@ -95,14 +95,14 @@ if USE_POSTGRES
         caption TEXT NOT NULL,
         photo_url TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','rejected')),
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
       CREATE TABLE IF NOT EXISTS messages (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         expert_name TEXT NOT NULL,
         body TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
       CREATE TABLE IF NOT EXISTS listings (
         id BIGSERIAL PRIMARY KEY,
@@ -114,7 +114,7 @@ if USE_POSTGRES
         city TEXT NOT NULL,
         photo_url TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','rejected')),
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
   SQL
   DB.exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0')
@@ -304,7 +304,7 @@ server.mount_proc('/') do |request, response|
   response['X-Frame-Options'] = 'DENY'
   response['X-Robots-Tag'] = 'noindex, nofollow'
   if request.request_method == 'GET' && path == '/healthz'
-    json_response(response, 200, { ok: true })
+    json_response(response, 200, { ok: true, persistent_storage: USE_POSTGRES })
     next
   end
   if request.request_method == 'POST' && request['origin'] && request['origin'] != PUBLIC_URL
