@@ -1078,6 +1078,129 @@
         .flow-copy { margin-bottom: 14px; font-size: 12px; }
         .listing-form { gap: 14px; }
       }
+
+      /* Beavizor Design System v1 — accessible, mobile-first authentication */
+      :root {
+        --bv-cream: #f6f4ef;
+        --bv-paper: #fffefa;
+        --bv-forest: #1f4b43;
+        --bv-forest-dark: #173c36;
+        --bv-muted: #66766f;
+        --bv-border: #dce4dd;
+        --bv-gold: #d8c3a5;
+        --bv-radius: 18px;
+      }
+      .auth-screen {
+        padding: 24px 16px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        background: linear-gradient(165deg, rgba(31,75,67,.16), rgba(246,244,239,.94) 65%, rgba(216,195,165,.27));
+      }
+      .auth-card {
+        max-width: 430px;
+        margin: auto;
+        padding: clamp(24px, 6vw, 38px);
+        border: 1px solid rgba(255,255,255,.9);
+        border-radius: 24px;
+        background: var(--bv-paper);
+        box-shadow: 0 22px 70px rgba(23,60,54,.14);
+      }
+      .auth-brand {
+        color: var(--bv-forest-dark);
+        font-family: "Bodoni 72", Didot, Georgia, serif;
+        font-size: clamp(37px, 8vw, 48px);
+        line-height: 1.12;
+        letter-spacing: -.025em;
+      }
+      .auth-copy {
+        margin: 12px 0 26px;
+        color: var(--bv-muted);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.65;
+        letter-spacing: .035em;
+        text-transform: none;
+      }
+      .auth-tabs {
+        gap: 5px;
+        margin-bottom: 22px;
+        padding: 5px;
+        border-radius: 15px;
+        background: #edf2ed;
+      }
+      .auth-tab {
+        min-height: 46px;
+        padding: 11px 8px;
+        border-radius: 11px;
+        color: var(--bv-muted);
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .auth-tab.active {
+        background: var(--bv-paper);
+        color: var(--bv-forest-dark);
+        box-shadow: 0 3px 12px rgba(31,75,67,.08);
+      }
+      .auth-label {
+        margin: 17px 0 7px;
+        color: #445e54;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: .10em;
+        text-transform: uppercase;
+      }
+      .auth-input {
+        min-height: 49px;
+        padding: 13px 15px;
+        border: 1px solid var(--bv-border);
+        border-radius: 12px;
+        background: #fff;
+        color: var(--bv-forest-dark);
+        font-size: 16px;
+        line-height: 1.4;
+      }
+      .auth-input::placeholder { color: #96a29c; }
+      .auth-input:focus-visible,
+      .auth-tab:focus-visible,
+      .auth-submit:focus-visible,
+      .auth-utility:focus-visible {
+        outline: 3px solid #a6cbb4;
+        outline-offset: 2px;
+      }
+      .auth-submit {
+        min-height: 52px;
+        margin-top: 24px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: var(--bv-forest-dark);
+        color: #fff;
+        font-size: 15px;
+        font-weight: 750;
+        letter-spacing: .01em;
+      }
+      .auth-submit:hover { background: #285a4e; }
+      .auth-utility {
+        margin-top: 15px;
+        color: var(--bv-forest);
+        font-size: 12px;
+        text-underline-offset: 3px;
+      }
+      .auth-note {
+        margin: 14px 0 0;
+        color: #935541;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+      @media (max-width: 390px) {
+        .auth-screen { padding: 18px 10px; }
+        .auth-card { padding: 23px 18px; border-radius: 19px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .auth-screen *, .auth-screen *::before, .auth-screen *::after {
+          animation-duration: .01ms !important;
+          transition-duration: .01ms !important;
+        }
+      }
     </style>
   </head>
   <body>
