@@ -287,33 +287,27 @@ server.mount_proc('/') do |request, response|
           raise ArgumentError, 'Ad en az 2 karakter olmalı.' if name.length < 2 || name.length > 80
           raise ArgumentError, 'Kayıt şifresi en az 10 karakter olmalı.' if password.length < 10
           begin
-            db_execute('INSERT INTO users(name,email,password_hash,email_verified) VALUES(?,?,?,0)', name,email,password_hash(password))
+            db_execute('INSERT INTO users(name,email,password_hash,email_verified) VALUES(?,?,?,1)', name,email,password_hash(password))
           rescue SQLite3::ConstraintException
-            json_response(response,409,{error:'Bu e-posta adresi zaten kayıtlı.'})
+            json_response(response,409,{error:'Bu e-posta adresi zaten kayıtlı. Giriş yapmayı deneyin.'})
             next
           end
           user_id = DB.last_insert_row_id
-          token = issue_token(user_id,'verify')
-          link = "#{PUBLIC_URL}/?verify=#{URI.encode_www_form_component(token)}"
-          begin
-            email_link(email,'Beavizor e-posta doğrulama','Hesabını doğrulamak için bağlantıyı aç:',link)
-          rescue StandardError => error
-            db_execute('DELETE FROM users WHERE id=?',user_id)
-            warn "E-posta gönderilemedi: #{error.message}"
-            json_response(response,503,{error:'Doğrulama e-postası gönderilemedi. E-posta ayarlarını kontrol edin.'})
-            next
-          end
-          message = EMAIL_MODE == 'console' ? 'Geliştirme modunda: doğrulama bağlantısı sunucu terminaline yazıldı.' : 'Doğrulama bağlantısı e-posta adresine gönderildi.'
-          json_response(response,201,{pending_verification:true,message:message})
+          token = SecureRandom.urlsafe_base64(32)
+          db_execute('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)',Digest::SHA256.hexdigest(token),user_id,Time.now.to_i+SESSION_TTL)
+          secure_attribute = PUBLIC_URL.start_with?('https://') ? '; Secure' : ''
+          response['Set-Cookie'] = "beavizor_session=#{token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=#{SESSION_TTL}#{secure_attribute}"
+          json_response(response,201,{user:{id:user_id,name:name,email:email,role:'customer'}})
         else
           user = db_first_row('SELECT id,name,email,role,email_verified,password_hash FROM users WHERE email=?',email)
           unless user && password_valid?(password,user['password_hash'])
             json_response(response,401,{error:'E-posta veya şifre hatalı.'})
             next
           end
-          unless user['email_verified'].to_i == 1
-            json_response(response,403,{error:'Giriş yapmadan önce e-posta adresinizi doğrulayın.'})
-            next
+          # Successful password login is sufficient; mark legacy pending accounts as active.
+          if user['email_verified'].to_i != 1
+            db_execute('UPDATE users SET email_verified=1 WHERE id=?',user['id'])
+            user['email_verified'] = 1
           end
           token = SecureRandom.urlsafe_base64(32)
           db_execute('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)',Digest::SHA256.hexdigest(token),user['id'],Time.now.to_i+SESSION_TTL)
