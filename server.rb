@@ -1,5 +1,6 @@
 require 'webrick'
 require 'sqlite3'
+require 'pg'
 require 'openssl'
 require 'securerandom'
 require 'json'
@@ -27,85 +28,174 @@ load_env
 HOST = ENV.fetch('HOST', '127.0.0.1')
 PORT = ENV.fetch('PORT', '8000').to_i
 PUBLIC_URL = ENV.fetch('BEAVIZOR_PUBLIC_URL', ENV.fetch('RENDER_EXTERNAL_URL', "http://127.0.0.1:#{PORT}")).sub(%r{/*$}, '')
+DATABASE_URL = ENV.fetch('DATABASE_URL', '').strip
+USE_POSTGRES = !DATABASE_URL.empty?
 DB_PATH = File.expand_path(ENV.fetch('BEAVIZOR_DB', File.join(ROOT, 'beavizor.sqlite3')))
+if ENV['RENDER'] == 'true' && !USE_POSTGRES
+  warn 'BEAVIZOR: DATABASE_URL tanımlı değil. Geçici SQLite verisi kalıcı değildir; yeni kayıtlar bloke edilecek.'
+end
 EMAIL_MODE = ENV.fetch('EMAIL_MODE', 'console')
 SESSION_TTL = 14 * 24 * 60 * 60
 
-# sqlite3 2.x accepts bind values as a single array argument.
-def db_execute(sql, *binds)
-  DB.execute(sql, binds)
+# Render Free disk is ephemeral. DATABASE_URL selects external persistent PostgreSQL.
+if USE_POSTGRES
+  DB = PG.connect(DATABASE_URL)
+  DB.exec("SET statement_timeout = '15s'")
+  DB.exec("SET lock_timeout = '5s'")
+  def db_execute(sql, *binds)
+    number=0
+    statement=sql.gsub('?') { number+=1; "$#{number}" }
+    insert = statement.match?(/\A\s*INSERT INTO (users|bookings|posts|listings|messages)\b/i)
+    statement += ' RETURNING id' if insert && !statement.match?(/\bRETURNING\b/i)
+    result=DB.exec_params(statement,binds)
+    Thread.current[:beavizor_last_insert_id] = result[0]['id'].to_i if insert && result.ntuples>0
+    result.to_a
+  end
+  def db_first_row(sql, *binds)
+    db_execute(sql,*binds).first
+  end
+  def last_insert_id
+    Thread.current[:beavizor_last_insert_id]
+  end
+  DB.exec(<<~SQL)
+    CREATE TABLE IF NOT EXISTS users (
+        id BIGSERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        email_verified INTEGER NOT NULL DEFAULT 0,
+        role TEXT NOT NULL DEFAULT 'customer' CHECK(role IN ('customer', 'admin')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at BIGINT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS email_tokens (
+        token_hash TEXT PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        purpose TEXT NOT NULL CHECK(purpose IN ('verify', 'reset')),
+        expires_at BIGINT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS bookings (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        service TEXT NOT NULL,
+        price TEXT NOT NULL,
+        location TEXT NOT NULL,
+        booking_date TEXT NOT NULL,
+        booking_time TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'completed', 'cancelled')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS posts (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        caption TEXT NOT NULL,
+        photo_url TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','rejected')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS messages (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expert_name TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS listings (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        category TEXT NOT NULL CHECK(category IN ('makeup','lashes','nails')),
+        description TEXT NOT NULL,
+        price_cents BIGINT NOT NULL,
+        city TEXT NOT NULL,
+        photo_url TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','rejected')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+  SQL
+  DB.exec('ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0')
+else
+  # SQLite is retained for local development only. Not durable on Render Free.
+  def db_execute(sql, *binds)
+    DB.execute(sql, binds)
+  end
+  def db_first_row(sql, *binds)
+    DB.get_first_row(sql, binds)
+  end
+  def last_insert_id
+    DB.last_insert_row_id
+  end
+  DB = SQLite3::Database.new(DB_PATH)
+  DB.results_as_hash = true
+  db_execute('PRAGMA foreign_keys = ON')
+  DB.execute_batch(<<~SQL)
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        email_verified INTEGER NOT NULL DEFAULT 0,
+        role TEXT NOT NULL DEFAULT 'customer' CHECK(role IN ('customer', 'admin')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS email_tokens (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        purpose TEXT NOT NULL CHECK(purpose IN ('verify', 'reset')),
+        expires_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS bookings (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        service TEXT NOT NULL,
+        price TEXT NOT NULL,
+        location TEXT NOT NULL,
+        booking_date TEXT NOT NULL,
+        booking_time TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'completed', 'cancelled')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS posts (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        caption TEXT NOT NULL,
+        photo_url TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','rejected')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expert_name TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS listings (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        category TEXT NOT NULL CHECK(category IN ('makeup','lashes','nails')),
+        description TEXT NOT NULL,
+        price_cents INTEGER NOT NULL,
+        city TEXT NOT NULL,
+        photo_url TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','rejected')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+  SQL
+  columns = db_execute('PRAGMA table_info(users)').map { |row| row['name'] }
+  db_execute('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0') unless columns.include?('email_verified')
 end
 
-def db_first_row(sql, *binds)
-  DB.get_first_row(sql, binds)
-end
-
-DB = SQLite3::Database.new(DB_PATH)
-DB.results_as_hash = true
-db_execute('PRAGMA foreign_keys = ON')
-DB.execute_batch(<<~SQL)
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    password_hash TEXT NOT NULL,
-    email_verified INTEGER NOT NULL DEFAULT 0,
-    role TEXT NOT NULL DEFAULT 'customer' CHECK(role IN ('customer', 'admin')),
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS sessions (
-    token_hash TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    expires_at INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS email_tokens (
-    token_hash TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    purpose TEXT NOT NULL CHECK(purpose IN ('verify', 'reset')),
-    expires_at INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS bookings (
-    id INTEGER PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    service TEXT NOT NULL,
-    price TEXT NOT NULL,
-    location TEXT NOT NULL,
-    booking_date TEXT NOT NULL,
-    booking_time TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'completed', 'cancelled')),
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS posts (
-    id INTEGER PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    caption TEXT NOT NULL,
-    photo_url TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','rejected')),
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    expert_name TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS listings (
-    id INTEGER PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    category TEXT NOT NULL CHECK(category IN ('makeup','lashes','nails')),
-    description TEXT NOT NULL,
-    price_cents INTEGER NOT NULL,
-    city TEXT NOT NULL,
-    photo_url TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','rejected')),
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-SQL
-
-columns = db_execute('PRAGMA table_info(users)').map { |row| row['name'] }
-db_execute('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0') unless columns.include?('email_verified')
 admin_email = ENV.fetch('BEAVIZOR_ADMIN_EMAIL', '').strip.downcase
 admin_password = ENV.fetch('BEAVIZOR_ADMIN_PASSWORD', '')
 if !admin_email.empty? && admin_password.length >= 10
@@ -283,6 +373,10 @@ server.mount_proc('/') do |request, response|
       end
     elsif request.request_method == 'POST'
       data = request_data(request)
+      if ENV['RENDER'] == 'true' && !USE_POSTGRES && ['/api/register','/api/login'].include?(path)
+        json_response(response,503,{error:'Kayıtlar geçici depolamada kaybolabiliyor. Kalıcı veritabanı henüz bağlanmadı; lütfen daha sonra tekrar deneyin.'})
+        next
+      end
       if ['/api/register','/api/login'].include?(path)
         email = data.fetch('email', '').to_s.strip.downcase
         password = data.fetch('password', '').to_s
@@ -293,11 +387,11 @@ server.mount_proc('/') do |request, response|
           raise ArgumentError, 'Kayıt şifresi en az 10 karakter olmalı.' if password.length < 10
           begin
             db_execute('INSERT INTO users(name,email,password_hash,email_verified) VALUES(?,?,?,1)', name,email,password_hash(password))
-          rescue SQLite3::ConstraintException
+          rescue SQLite3::ConstraintException, PG::UniqueViolation
             json_response(response,409,{error:'Bu e-posta adresi zaten kayıtlı. Giriş yapmayı deneyin.'})
             next
           end
-          user_id = DB.last_insert_row_id
+          user_id = last_insert_id
           token = SecureRandom.urlsafe_base64(32)
           db_execute('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)',Digest::SHA256.hexdigest(token),user_id,Time.now.to_i+SESSION_TTL)
           secure_attribute = PUBLIC_URL.start_with?('https://') ? '; Secure' : ''
@@ -379,7 +473,7 @@ server.mount_proc('/') do |request, response|
           next
         end
         db_execute('INSERT INTO bookings(user_id,service,price,location,booking_date,booking_time) VALUES(?,?,?,?,?,?)',user['id'],service,price,address,date,time)
-        booking=db_first_row('SELECT * FROM bookings WHERE id=?',DB.last_insert_row_id)
+        booking=db_first_row('SELECT * FROM bookings WHERE id=?',last_insert_id)
         json_response(response,201,{booking:booking})
       elsif path =~ %r{\A/api/bookings/(\d+)/cancel\z}
         user=current_user(request)
@@ -410,7 +504,7 @@ server.mount_proc('/') do |request, response|
         raise ArgumentError,'Gönderi açıklaması 5-1000 karakter olmalı.' unless caption.length.between?(5,1000)
         raise ArgumentError,'Fotoğraf için geçerli bir HTTPS bağlantısı gerekli.' unless photo_url.empty? || (photo_url.length <= 500 && photo_url.match?(%r{\Ahttps://[^\s]+\z}))
         db_execute("INSERT INTO posts(user_id,caption,photo_url,status) VALUES(?,?,?,'pending')",user['id'],caption,photo_url)
-        post=db_first_row('SELECT id,caption,photo_url,status,created_at FROM posts WHERE id=?',DB.last_insert_row_id)
+        post=db_first_row('SELECT id,caption,photo_url,status,created_at FROM posts WHERE id=?',last_insert_id)
         json_response(response,201,{post:post,message:'Gönderin paylaşıldı; yönetici onayı bekliyor.'})
       elsif path == '/api/listings'
         user = current_user(request)
@@ -432,7 +526,7 @@ server.mount_proc('/') do |request, response|
         raise ArgumentError, 'Fotoğraf bağlantısı HTTPS olmalı.' unless photo_url.empty? || photo_url.match?(%r{\Ahttps://[^\s]{1,500}\z})
         db_execute("INSERT INTO listings(user_id,title,category,description,price_cents,city,photo_url,status) VALUES(?,?,?,?,?,?,?,'pending')",
                    user['id'], title, category, description, price.to_i * 100, city, photo_url)
-        listing = db_first_row('SELECT * FROM listings WHERE id=?', DB.last_insert_row_id)
+        listing = db_first_row('SELECT * FROM listings WHERE id=?', last_insert_id)
         json_response(response, 201, { listing: listing, message: 'İlanın yönetici onayına gönderildi.' })
       elsif path == '/api/messages'
         user=current_user(request)
@@ -444,7 +538,7 @@ server.mount_proc('/') do |request, response|
         body=data.fetch('body','').to_s.strip
         raise ArgumentError,'Uzman ve 1-2000 karakter arası mesaj gerekli.' if expert.empty? || body.empty? || body.length>2000
         db_execute('INSERT INTO messages(user_id,expert_name,body) VALUES(?,?,?)',user['id'],expert,body)
-        row=db_first_row('SELECT id,expert_name,body,created_at FROM messages WHERE id=?',DB.last_insert_row_id)
+        row=db_first_row('SELECT id,expert_name,body,created_at FROM messages WHERE id=?',last_insert_id)
         json_response(response,201,{message:row})
       elsif path =~ %r{\A/api/admin/listings/(\d+)/status\z}
         user = current_user(request)
