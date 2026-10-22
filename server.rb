@@ -4,6 +4,7 @@ require 'openssl'
 require 'securerandom'
 require 'json'
 require 'net/smtp'
+require 'net/http'
 require 'uri'
 require 'time'
 require 'date'
@@ -151,11 +152,34 @@ rescue ArgumentError
 end
 
 def email_link(recipient, subject, body, url)
-  if EMAIL_MODE == 'console' || ENV['SMTP_HOST'].to_s.empty?
+  message_text = "#{body}\n#{url}"
+  if EMAIL_MODE == 'console'
     puts "DEVELOPMENT EMAIL to=#{recipient} subject=#{subject} link=#{url}"
     return
+  elsif EMAIL_MODE == 'resend'
+    api_key = ENV.fetch('RESEND_API_KEY', '')
+    from = ENV.fetch('RESEND_FROM_EMAIL', '')
+    raise 'Resend API anahtarı veya gönderen adresi eksik.' if api_key.empty? || from.empty?
+    uri = URI('https://api.resend.com/emails')
+    request = Net::HTTP::Post.new(uri)
+    request['Authorization'] = "Bearer #{api_key}"
+    request['Content-Type'] = 'application/json'
+    request['User-Agent'] = 'Beavizor/1.0'
+    request.body = JSON.generate({from: from, to: [recipient], subject: subject, text: message_text})
+    response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 15) do |http|
+      http.request(request)
+    end
+    unless response.is_a?(Net::HTTPSuccess)
+      warn "Resend email delivery rejected: HTTP #{response.code}"
+      raise 'E-posta gönderimi başarısız.'
+    end
+    return
+  elsif EMAIL_MODE != 'smtp'
+    raise 'EMAIL_MODE değeri console, smtp veya resend olmalı.'
   end
-  host = ENV.fetch('SMTP_HOST')
+
+  host = ENV.fetch('SMTP_HOST', '')
+  raise 'SMTP_HOST ayarı eksik.' if host.empty?
   port = ENV.fetch('SMTP_PORT', '587').to_i
   from = ENV.fetch('SMTP_FROM', ENV.fetch('SMTP_USER', ''))
   user = ENV.fetch('SMTP_USER', '')
@@ -276,7 +300,7 @@ server.mount_proc('/') do |request, response|
           rescue StandardError => error
             db_execute('DELETE FROM users WHERE id=?',user_id)
             warn "E-posta gönderilemedi: #{error.message}"
-            json_response(response,503,{error:'Doğrulama e-postası gönderilemedi. SMTP ayarlarını kontrol edin.'})
+            json_response(response,503,{error:'Doğrulama e-postası gönderilemedi. E-posta ayarlarını kontrol edin.'})
             next
           end
           message = EMAIL_MODE == 'console' ? 'Geliştirme modunda: doğrulama bağlantısı sunucu terminaline yazıldı.' : 'Doğrulama bağlantısı e-posta adresine gönderildi.'
