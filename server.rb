@@ -29,9 +29,6 @@ PORT = ENV.fetch('PORT', '8000').to_i
 PUBLIC_URL = ENV.fetch('BEAVIZOR_PUBLIC_URL', ENV.fetch('RENDER_EXTERNAL_URL', "http://127.0.0.1:#{PORT}")).sub(%r{/*$}, '')
 DB_PATH = File.expand_path(ENV.fetch('BEAVIZOR_DB', File.join(ROOT, 'beavizor.sqlite3')))
 EMAIL_MODE = ENV.fetch('EMAIL_MODE', 'console')
-if ENV['RENDER'] == 'true' && ENV.fetch('TEST_ACCESS_PASSWORD', '').length < 20
-  abort 'Render test deployment requires TEST_ACCESS_PASSWORD (at least 20 characters).'
-end
 SESSION_TTL = 14 * 24 * 60 * 60
 
 # sqlite3 2.x accepts bind values as a single array argument.
@@ -219,13 +216,6 @@ server.mount_proc('/') do |request, response|
   if request.request_method == 'GET' && path == '/healthz'
     json_response(response, 200, { ok: true })
     next
-  end
-  unless ENV.fetch('TEST_ACCESS_PASSWORD', '').empty?
-    WEBrick::HTTPAuth.basic_auth(request, response, 'Beavizor Test') do |username, password|
-      expected = Digest::SHA256.hexdigest(ENV.fetch('TEST_ACCESS_PASSWORD'))
-      actual = Digest::SHA256.hexdigest(password.to_s)
-      username == 'beavizor' && OpenSSL.fixed_length_secure_compare(expected, actual)
-    end
   end
   if request.request_method == 'POST' && request['origin'] && request['origin'] != PUBLIC_URL
     json_response(response, 403, { error: 'Geçersiz istek kaynağı.' })
