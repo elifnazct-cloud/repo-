@@ -1275,6 +1275,11 @@
         .auth-card > .auth-form,
         .auth-card > .auth-note { margin-left: 17px; margin-right: 17px; }
       }
+
+/* Beavizor Home v1 */
+.bv-home-hero{position:relative;overflow:hidden;margin:8px 0 24px;padding:26px 22px;background:linear-gradient(135deg,#173c36,#2b6150);border-radius:22px;color:#fffaf3;box-shadow:0 12px 26px #173c3633}
+.bv-home-hero:after{content:"";position:absolute;right:-40px;top:-44px;width:160px;height:160px;border:1px solid #d8c3a588;border-radius:50%;box-shadow:0 0 0 24px #d8c3a51a;pointer-events:none}
+.bv-eyebrow{font-size:10px;font-weight:800;color:#e9d1ad;letter-spacing:.15em;margin-bottom:14px}.bv-home-hero h2{font:700 clamp(28px,6vw,38px)/1.12 "Playfair Display",Georgia,serif;color:#fffaf3;margin:0}.bv-home-hero h2 em{color:#e6cdaa}.bv-home-hero p{max-width:235px;margin:15px 0 20px;color:#f2f4ec;font-size:12px;line-height:1.65}.bv-explore-btn{min-height:44px;padding:12px 17px;border:0;border-radius:11px;background:#f3e3ca;color:#173c36;font-size:12px;font-weight:800;cursor:pointer;position:relative;z-index:1}.bv-home-categories{margin-bottom:25px}.bv-home-categories h2{font:700 21px "Playfair Display",Georgia,serif;color:#173c36;margin:0 0 14px}.bv-category-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.bv-category-list button{min-height:105px;padding:14px 8px;border-radius:14px;background:#fffefa;border:1px solid #e2e7df;color:#315b49;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;font-size:25px;cursor:pointer}.bv-category-list strong{font:700 12px "DM Sans",sans-serif;color:#173c36}.bv-category-list button:focus-visible,.bv-explore-btn:focus-visible{outline:3px solid #87bca0;outline-offset:2px}
     </style>
   </head>
   <body>
@@ -1357,7 +1362,8 @@
                 <div class="avatar"></div>
               </div>
 
-              <div class="follow-feed home-only">
+              <section class="bv-home-hero home-only"><div class="bv-eyebrow">✦ BEAVIZOR BEAUTY</div><h2>Güzelliğin,<br><em>senin tarzın.</em></h2><p>Makyaj, kirpik ve tırnak hizmetlerini bir arada keşfet.</p><button type="button" data-show="explore" class="bv-explore-btn">Uzmanları keşfet ↗</button></section><section class="bv-home-categories home-only"><h2>Ne arıyorsun?</h2><div class="bv-category-list"><button type="button" data-show="explore">✧ <strong>Makyaj</strong></button><button type="button" data-show="explore">◈ <strong>Kirpik</strong></button><button type="button" data-show="explore">✦ <strong>Tırnak</strong></button></div></section>
+<div class="follow-feed home-only">
                 <strong class="follow-feed-title">Gerçek makyaj uygulamaları</strong>
                 <p class="flow-copy">Henüz yayınlanmış doğrulanmış bir uygulama yok.</p>
               </div>
