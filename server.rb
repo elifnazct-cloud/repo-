@@ -78,6 +78,14 @@ DB.execute_batch(<<~SQL)
     status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'completed', 'cancelled')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS posts (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    caption TEXT NOT NULL,
+    photo_url TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','rejected')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -246,7 +254,7 @@ server.mount_proc('/') do |request, response|
       json_response(response, 200, user ? { user: user } : { user: nil })
     elsif request.request_method == 'GET' && path.start_with?('/api/')
       user = current_user(request)
-      if path == '/api/bookings' || path == '/api/messages' || path == '/api/my-listings'
+      if path == '/api/bookings' || path == '/api/messages' || path == '/api/my-listings' || path == '/api/my-posts'
         unless user
           json_response(response, 401, { error: 'Oturum açmanız gerekiyor.' })
           next
@@ -257,6 +265,9 @@ server.mount_proc('/') do |request, response|
         elsif path == '/api/messages'
           rows = db_execute('SELECT id,expert_name,body,created_at FROM messages WHERE user_id=? ORDER BY id ASC', user['id'])
           json_response(response, 200, { messages: rows })
+        elsif path == '/api/my-posts'
+          rows = db_execute('SELECT id,caption,photo_url,status,created_at FROM posts WHERE user_id=? ORDER BY id DESC LIMIT 50',user['id'])
+          json_response(response,200,{posts:rows})
         else
           rows = db_execute('SELECT * FROM listings WHERE user_id=? ORDER BY id DESC', user['id'])
           json_response(response, 200, { listings: rows })
@@ -269,7 +280,11 @@ server.mount_proc('/') do |request, response|
         users = db_execute('SELECT id,name,email,role,created_at FROM users ORDER BY id DESC')
         bookings = db_execute('SELECT bookings.*,users.name AS customer_name,users.email AS customer_email FROM bookings JOIN users ON users.id=bookings.user_id ORDER BY bookings.id DESC')
         listings = db_execute('SELECT listings.*,users.name AS seller_name,users.email AS seller_email FROM listings JOIN users ON users.id=listings.user_id ORDER BY listings.id DESC')
-        json_response(response, 200, { users: users, bookings: bookings, listings: listings })
+        posts = db_execute('SELECT posts.*, users.name AS author_name FROM posts JOIN users ON users.id=posts.user_id ORDER BY posts.id DESC LIMIT 100')
+        json_response(response, 200, { users: users, bookings: bookings, listings: listings, posts: posts })
+      elsif path == '/api/posts'
+        rows = db_execute("SELECT posts.id,posts.caption,posts.photo_url,posts.created_at,users.name AS author_name FROM posts JOIN users ON users.id=posts.user_id WHERE posts.status='published' ORDER BY posts.id DESC LIMIT 50")
+        json_response(response,200,{posts:rows})
       elsif path == '/api/listings'
         rows = db_execute("SELECT listings.*,users.name AS seller_name FROM listings JOIN users ON users.id=listings.user_id WHERE listings.status='published' AND users.email_verified=1 ORDER BY listings.id DESC")
         json_response(response, 200, { listings: rows })
@@ -365,12 +380,48 @@ server.mount_proc('/') do |request, response|
         address=data.fetch('location','').to_s.strip[0,500]
         date=data.fetch('date','').to_s
         time=data.fetch('time','').to_s
-        parsed=Time.strptime(date,'%Y-%m-%d') rescue nil
-        raise ArgumentError,'Randevu tarihi geçersiz.' unless parsed && parsed.strftime('%Y-%m-%d') == date && parsed.to_date > Date.today
+        parsed=Date.strptime(date,'%Y-%m-%d') rescue nil
+        raise ArgumentError,'Randevu tarihi geçersiz. Yarın ile 60 gün sonrasını seçin.' unless parsed && parsed.strftime('%Y-%m-%d') == date && parsed > Date.today && parsed <= Date.today + 60
         raise ArgumentError,'Hizmet, adres ve geçerli saat gerekli.' if service.empty? || price.empty? || address.length < 5 || !%w[10:00 13:30 16:00 18:30].include?(time)
+        conflict=db_first_row("SELECT id FROM bookings WHERE user_id=? AND booking_date=? AND booking_time=? AND status IN ('pending','confirmed') LIMIT 1",user['id'],date,time)
+        if conflict
+          json_response(response,409,{error:'Bu saatte zaten aktif bir randevu talebiniz var.'})
+          next
+        end
         db_execute('INSERT INTO bookings(user_id,service,price,location,booking_date,booking_time) VALUES(?,?,?,?,?,?)',user['id'],service,price,address,date,time)
         booking=db_first_row('SELECT * FROM bookings WHERE id=?',DB.last_insert_row_id)
         json_response(response,201,{booking:booking})
+      elsif path =~ %r{\A/api/bookings/(\d+)/cancel\z}
+        user=current_user(request)
+        unless user
+          json_response(response,401,{error:'Oturum açmanız gerekiyor.'})
+          next
+        end
+        booking_id=path[%r{/api/bookings/(\d+)/cancel},1].to_i
+        booking=db_first_row('SELECT id,status,booking_date FROM bookings WHERE id=? AND user_id=?',booking_id,user['id'])
+        unless booking
+          json_response(response,404,{error:'Randevu bulunamadı.'})
+          next
+        end
+        unless %w[pending confirmed].include?(booking['status']) && booking['booking_date'] >= Date.today.iso8601
+          json_response(response,409,{error:'Bu randevu artık iptal edilemiyor.'})
+          next
+        end
+        db_execute("UPDATE bookings SET status='cancelled' WHERE id=? AND user_id=?",booking_id,user['id'])
+        json_response(response,200,{ok:true,message:'Randevu talebiniz iptal edildi.'})
+      elsif path == '/api/posts'
+        user=current_user(request)
+        unless user
+          json_response(response,401,{error:'Gönderi paylaşmak için giriş yapın.'})
+          next
+        end
+        caption=data.fetch('caption','').to_s.strip
+        photo_url=data.fetch('photo_url','').to_s.strip
+        raise ArgumentError,'Gönderi açıklaması 5-1000 karakter olmalı.' unless caption.length.between?(5,1000)
+        raise ArgumentError,'Fotoğraf için geçerli bir HTTPS bağlantısı gerekli.' unless photo_url.empty? || (photo_url.length <= 500 && photo_url.match?(%r{\Ahttps://[^\s]+\z}))
+        db_execute("INSERT INTO posts(user_id,caption,photo_url,status) VALUES(?,?,?,'pending')",user['id'],caption,photo_url)
+        post=db_first_row('SELECT id,caption,photo_url,status,created_at FROM posts WHERE id=?',DB.last_insert_row_id)
+        json_response(response,201,{post:post,message:'Gönderin paylaşıldı; yönetici onayı bekliyor.'})
       elsif path == '/api/listings'
         user = current_user(request)
         unless user
@@ -416,6 +467,17 @@ server.mount_proc('/') do |request, response|
         raise ArgumentError, 'İlan durumu geçersiz.' unless %w[published rejected].include?(status)
         db_execute('UPDATE listings SET status=? WHERE id=?', status, listing_id)
         json_response(response, 200, { ok: true })
+      elsif path =~ %r{\A/api/admin/posts/(\d+)/status\z}
+        user=current_user(request)
+        unless user && user['role']=='admin'
+          json_response(response,user ? 403 : 401,{error:'Yönetici erişimi gerekli.'})
+          next
+        end
+        post_id=path[%r{/api/admin/posts/(\d+)/status},1].to_i
+        status=data.fetch('status','').to_s
+        raise ArgumentError,'Gönderi durumu geçersiz.' unless %w[published rejected].include?(status)
+        db_execute('UPDATE posts SET status=? WHERE id=?',status,post_id)
+        json_response(response,200,{ok:true})
       elsif path =~ %r{\A/api/admin/bookings/(\d+)/status\z}
         user = current_user(request)
         unless user && user['role'] == 'admin'
