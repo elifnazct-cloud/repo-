@@ -2080,7 +2080,7 @@
         document.querySelectorAll(".top-actions [data-show]").forEach((button) => button.classList.toggle("active", button.dataset.show === name));
         if (name === "messages") messageBadge.style.display = "none";
         if (name === "listing") { loadMyListings(); loadMyPosts(); }
-        if (name === "home") loadPublishedPosts();
+        if (name === "home" && currentUser) loadPublishedPosts();
         if (name === "admin") loadAdmin();
       };
 
