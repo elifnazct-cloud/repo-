@@ -42,3 +42,18 @@ The bundled WEBrick server is for local development only. Do not expose it direc
 ## Prepared test deployment
 
 See TEST_YAYINI.md for test access and limitations. The included render.yaml uses the free Ruby runtime with automatic deployments disabled. Runtime testing has not yet completed. Never use real customer data in this temporary test environment.
+
+
+## Ücretsiz kalıcı veritabanı (Render Free + Neon Free)
+
+Render Free'deki yerel SQLite dosyası servis durduğunda veya yeniden dağıtıldığında kaybolur. Üretim benzeri testte kullanıcı hesaplarını, gönderileri, ilanları ve randevuları korumak için ücretsiz Neon PostgreSQL kullanın.
+
+1. https://console.neon.tech/ adresinde ücretsiz proje oluşturun (ör. `beavizor`).
+2. Neon'da **Connection string** (Postgres URL) alın; SSL parametresini koruyun. **Bu değeri GitHub'a, WhatsApp'a veya ChatGPT'ye yapıştırmayın.**
+3. Render Dashboard → `repo-` web service → **Environment** → `DATABASE_URL` anahtarına bu bağlantıyı **Secret** olarak girin. Başka bir ayarı veya şifreyi silmeyin.
+4. PostgreSQL destekli kod ana sürüme alındıktan ve Render başarıyla dağıtıldıktan sonra `/healthz` yanıtında `persistent_storage: true` göründüğünü kontrol edin.
+5. Test hesabı oluşturun, çıkış yapıp aynı e-postayla tekrar girin ve sonraki servis yeniden başlatmasından sonra da giriş yaptığınızdan emin olun.
+
+`DATABASE_URL` olmadan Render üzerinde yeni kayıt/giriş işlemleri, yanlış başarı hissi vermemek için HTTP 503 ile bloke edilir. Yerel geliştirmede SQLite çalışmaya devam eder. Bu geçiş Render'ın geçici dosyalarındaki eski hesapları otomatik olarak kurtarmaz.
+
+Bu kurulum bir **test ortamıdır**: ücretsiz servis uyuyabilir, Neon kotaları vardır, fotoğraf yükleme ve gerçek uzman görüşmesi/ödeme hizmetleri henüz eksiktir. Canlı müşteri kullanımı öncesinde güvenlik, yedekleme ve gerçek kullanıcı testleri yapılmalıdır.
